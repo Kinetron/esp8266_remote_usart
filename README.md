@@ -3,6 +3,6 @@ Remote usart use esp8266 module
 
 For work need install libs:
 FastBot
-PDUlib
+PDUlib(https://github.com/mgaman/PDUlib)
 esp8266-ping(https://github.com/bluemurder/esp8266-ping)
-GyverPortal(https://github.com/GyverLibs/GyverPortal?ysclid=lul7z617es736239897)
+GyverPortal(https://github.com/GyverLibs/GyverPortal?ysclid=lul7z617es736239897) not use
