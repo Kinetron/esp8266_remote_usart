@@ -2,26 +2,35 @@
 #include <FastBot.h>
 #include <AsyncStream.h>
 #include <pdulib.h>
-#include "ext_config.h" //Private param. Bot password,id, wifi password etc.  
+#include <Pinger.h>
+#include <Ticker.h>
+#include "ext_config.h" //Private param. Bot password,id, wifi password etc.
+
+Ticker sec;
+
+extern "C"
+{
+  #include <lwip/icmp.h> // needed for icmp packet definitions
+}
 
 #define GPIO2 2
 #define GPIO0 0
-
-#define SERIAL_BUFFER_SIZE 512
+#define TIMER0_DIV_VALUE 80000000L * 10 //Сlock frequency 80MHz, 10sec interrupt.
+#define PING_IP "8.8.8.8"
 
 String lastChatId = ""; //Telegram chat id.
 PDU pduDecoder = PDU(1024); //UTF8_BUFFSIZE
+
+bool led_on = false; //флаг состояния светодиода
 
 //Work mode.
 //0-lock.
 int mode = 0;
 bool beginReset = 0; //Поступила команда перезагрузки esp8266.
-byte serialBuffer[SERIAL_BUFFER_SIZE];
-
-int serialBufferPos = 0;
 
 FastBot bot(BOT_TOKEN);
 AsyncStream<512> serial(&Serial, '\n'); // указали Stream-объект и символ конца
+Pinger pinger; // Set global to avoid object removing after setup() routine.
 
 void setup() {
   pinMode(2, OUTPUT);
@@ -32,6 +41,37 @@ void setup() {
   connectWiFi();
   
   bot.attach(oNnewMsg);
+  noInterrupts();
+  timer0_isr_init(); //Timer interrupts.
+  timer0_attachInterrupt(timer0_interrupt_handler); //настраиваем прерывание (привязка к функции)
+  timer0_write(ESP.getCycleCount() + TIMER0_DIV_VALUE); //Тактовая частота 80MHz, получаем секунду
+  interrupts();
+
+  pinger.OnReceive([](const PingerResponse& response)
+  {    
+    // Return true to continue the ping sequence.
+    // If current event returns false, the ping sequence is interrupted.
+    return true;
+  });
+
+  pinger.OnEnd([](const PingerResponse& response)
+  {
+    // Evaluate lost packet percentage
+    float loss = 100;
+    if(response.TotalReceivedResponses > 0)
+    {
+      loss = (response.TotalSentRequests - response.TotalReceivedResponses) * 100 / response.TotalSentRequests;
+    }
+    
+    if((int)loss == 100) 
+    {
+      ESP.restart();
+    }
+
+     return true;
+  });
+
+  ESP.wdtEnable(5000);
 }
 
 void loop() {
@@ -162,3 +202,24 @@ void executionNoUsartCommand(String msg, String chatID)
         bot.sendMessage(data, chatID);     
       }
 }
+
+void timer0_interrupt_handler(void)
+{
+   if (led_on)
+   {
+     digitalWrite(GPIO0, HIGH);
+     led_on = false;
+   }
+   else
+   { 
+    digitalWrite(GPIO0, LOW);
+    led_on = true;
+   }
+   //Check connection. 
+   if(pinger.Ping(PING_IP) == false)
+   {
+     ESP.restart();
+   } 
+  timer0_write(ESP.getCycleCount() + TIMER0_DIV_VALUE); //Тактовая частота 80MHz, получаем секунду  
+}
+
