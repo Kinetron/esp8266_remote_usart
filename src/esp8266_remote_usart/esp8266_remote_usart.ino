@@ -16,7 +16,7 @@ extern "C"
   #include <lwip/icmp.h> // needed for icmp packet definitions
 }
 
-#define DEBUG_MODE //Disabled password access to bot.
+//#define DEBUG_MODE //Disabled password access to bot.
 #define DEFAULT_SSID "esp8266_rt"
 #define GPIO2 2
 #define GPIO0 0
@@ -307,7 +307,9 @@ void commandHandler(String msg, String chatID)
 void executionNoUsartCommand(String msg, String chatID)
 {
       if (msg == "/hello")
+      {
         bot.sendMessage("Hi people!", chatID);
+      }        
       else if (msg == "/rst_ext")
       {
         digitalWrite(GPIO2, LOW);
@@ -329,7 +331,8 @@ void executionNoUsartCommand(String msg, String chatID)
       }
       else if (msg == "/lock") //Lock receiving commands.
       {
-         mode = 0;
+         bot.sendMessage("OK", chatID);
+         mode = 0;         
       }
       else if(msg.substring(0, 4) == "/pdu") //Convert from UCS2.
       {
