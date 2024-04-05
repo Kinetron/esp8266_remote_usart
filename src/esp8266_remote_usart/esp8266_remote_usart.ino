@@ -16,6 +16,7 @@ extern "C"
   #include <lwip/icmp.h> // needed for icmp packet definitions
 }
 
+#define DEBUG_MODE //Disabled password access to bot.
 #define DEFAULT_SSID "esp8266_rt"
 #define GPIO2 2
 #define GPIO0 0
@@ -35,12 +36,10 @@ String wifi_stations; //Available access points, from scan.
 int webStatusCode; //Web server last status code.
 PDU pduDecoder = PDU(1024); //UTF8_BUFFSIZE
 
-bool led_on = false; //флаг состояния светодиода
-
 //Work mode.
 //0-lock.
 int mode = 0;
-bool beginReset = 0; //Поступила команда перезагрузки esp8266.
+int resetModuleFlag = 0; //Flag for begin reboot esp8266.
 
 FastBot bot(BOT_TOKEN);
 AsyncStream<512> serial(&Serial, '\n'); // указали Stream-объект и символ конца
@@ -113,19 +112,21 @@ void setup() {
 }
 
 void loop() {
-//if (mode == 2 && Serial.available()) 
-   if (serial.available()) {     // если данные получены
-     bot.sendMessage(String(serial.buf), lastChatId);
-  }
-  bot.tick();
 
-  //Поступила команда перезагрузки модуля.
-  if(beginReset == 1)
+  bool allowSend = false;
+#ifdef DEBUG_MODE
+  allowSend = true; 
+#else
+  if(mode == 2) allowSend = true; 
+#endif
+  
+  //If data receive.
+  if (allowSend && serial.available()) 
   {
-     delay(1000);
-     //ESP.restart();
-     beginReset = 0;
+    bot.sendMessage(String(serial.buf), lastChatId);
   }
+  
+  bot.tick(); 
 }
 
 //Init ap, web server and wait client settings.
@@ -189,40 +190,46 @@ String scanNetworks(){
   return stations;
 }
 
-// обработчик сообщений
-void oNnewMsg(FB_msg& msg) {
- lastChatId = msg.chatID;
-commandHandler(msg.text, msg.chatID);
-return;
+//Message handler.
+void oNnewMsg(FB_msg& msg)
+{
+  lastChatId = msg.chatID;
 
-//Поведение в зависимости от режима работы.
-   switch(mode){
-     //Перевести бот в режим приема пароля.
-     case 0:
+#ifdef DEBUG_MODE
+  commandHandler(msg.text, msg.chatID);
+  return;
+#endif
+
+//The behavior depends on the operating mode.
+  switch(mode){
+     //Switch bot to waiting for the password.
+    case 0:
           if (msg.text == "/unlock")
           {
             mode = 1; 
           }
-     break;
+    break;
 
-    //Режим приема пароля активации. 
-     case 1:
+    //Waiting for the password.
+    case 1:
           if (msg.text != ACTIVATION_PASSWORD)
           {
-            mode = 0;             
+            mode = 0;          
           }
           else
           {
             mode = 2;
             bot.sendMessage("OK", msg.chatID);
-          }
-         
-     break;
+          }         
+    break;
 
-     //Режим обработки команд.
-     case 2:
+    //Command handler mode.
+    case 2:
        commandHandler(msg.text, msg.chatID);
-     break;     
+    break;
+
+    default:
+    break;   
    }   
 }
 
@@ -283,13 +290,12 @@ bool waitPressFwButton()
    return false; 
 }
 
-//Обрабатывает команды.
 void commandHandler(String msg, String chatID)
 {
-    //Обработка команд предназначенных для трансляции через usart.
+    //Command for sent to usart.
     if(msg[0] == 'u')
     {
-       String atCommand = msg.substring(2); //Обрезаем u пробел в начале строки
+       String atCommand = msg.substring(2); //Cut 'u' and ' '.
        Serial.println(atCommand);   
     }
     else{
@@ -297,7 +303,7 @@ void commandHandler(String msg, String chatID)
     }
 }
 
-//Выполняет внутренние команды, не требующие передачи по usart.
+//Execute inner command.
 void executionNoUsartCommand(String msg, String chatID)
 {
       if (msg == "/hello")
@@ -319,24 +325,23 @@ void executionNoUsartCommand(String msg, String chatID)
       else if (msg == "/reset_8266")
       {
         bot.sendMessage("OK", chatID);
-        beginReset = 1;
+        resetModuleFlag = 1;
       }
-      //Заблокировать прием команд.
-      else if (msg == "/lock")
+      else if (msg == "/lock") //Lock receiving commands.
       {
          mode = 0;
       }
-      else if(msg.substring(0, 4) == "/pdu") //Конвертация сообщений из UCS2.
+      else if(msg.substring(0, 4) == "/pdu") //Convert from UCS2.
       {
         String pdu = msg.substring(5);
         int result = pduDecoder.decodePDU(pdu.c_str()); 
         if (result < 0) 
         {
-          bot.sendMessage("ERROR " + String(result) + msg.substring(4), chatID);
+          bot.sendMessage("ERROR " + String(result) + " " + pdu, chatID);
           return;
         }
 
-        //Количество символов не влезщих в буфер
+        //The number of characters that did not fit into the buffer.
         String overflow = "";
         if(pduDecoder.getOverflow() > 0)
         {
@@ -352,21 +357,23 @@ void executionNoUsartCommand(String msg, String chatID)
 
 void timer0_interrupt_handler(void)
 {
-   if (led_on)
-   {
-     digitalWrite(GPIO0, HIGH);
-     led_on = false;
-   }
-   else
-   { 
-    digitalWrite(GPIO0, LOW);
-    led_on = true;
-   }
    //Check connection. 
    if(pinger.Ping(PING_IP) == false)
    {
      ESP.restart();
    } 
+
+   //Process module reset.
+   switch(resetModuleFlag)
+   {
+    case 1: resetModuleFlag = 2; //Wait 10sec for some time to send answer in telegram.
+    break;
+    case 2:
+      ESP.restart();
+    break;
+    default: break;
+   } 
+
   timer0_write(ESP.getCycleCount() + TIMER0_DIV_VALUE); //Тактовая частота 80MHz, получаем секунду  
 }
 
