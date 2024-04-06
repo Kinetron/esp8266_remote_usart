@@ -6,10 +6,11 @@
 #include <AsyncStream.h>
 #include <pdulib.h>
 #include <Pinger.h>
-#include <ESP8266HTTPClient.h>
 #include <ESP8266WebServer.h>
-#include <EEPROM.h>
-#include "UCS2Converter.h"
+#include "src/library/UCS2Converter/UCS2Converter.h"
+#include "src/library/SystemSettings/SystemSettings.h"
+#include "src/library/WebServer/WebServer.h"
+
 #include "ext_config.h" //Private param. Bot password, bot id.
 
 extern "C"
@@ -23,20 +24,14 @@ extern "C"
 #define GPIO0 0
 #define TIMER0_DIV_VALUE 80000000L * 10 //Сlock frequency 80MHz, 10sec interrupt.
 #define PING_IP "8.8.8.8"
-#define EEPROM_INIT_WORD_LEN 7 //The value for determining the first run - len of string INIT_WORD "nofirst".
-#define INIT_WORD "nofirst"
-#define EEPROM_CLIENT_SSID_LEN 32 //SSID home wifi len.
-#define EEPROM_CLIENT_PASSWORD_LEN 64 //Home wifi password.
 #define WIFI_СONNECTION_ATTEMPTS 30 //Max attempts count when device reboot.
 #define WAIT_PRESS_FW_BTN_ATTEMPTS 8
 #define DELAY_WAIT_PRESS_FW_BTN_ATTEMPTS 250
 #define MODEM_TIMEOUT 25000
 #define DELAY_WAIT_AT_COMMAND 50
 
-String lastChatId = ""; //Telegram chat id.
-String webServerContent; //web server content
-String wifi_stations; //Available access points, from scan.
-int webStatusCode; //Web server last status code.
+String tgClientId = ""; //Telegram client id.
+extern String wifi_stations; //Available access points, from scan.
 PDU pduDecoder = PDU(1024); //UTF8_BUFFSIZE
 
 //Work mode.
@@ -50,8 +45,6 @@ bool enabledSendModemResponse = true; //Enabled send modem response from bot if 
 FastBot bot(BOT_TOKEN);
 AsyncStream<512> serial(&Serial, '\n'); // указали Stream-объект и символ конца
 Pinger pinger; // Set global to avoid object removing after setup() routine.
-//Establishing Local server at port 80 whenever required
-ESP8266WebServer server(80);
 
 void setup() {
   pinMode(GPIO2, OUTPUT);
@@ -60,7 +53,7 @@ void setup() {
   digitalWrite(GPIO0, HIGH);
   Serial.begin(9600);
 
-  EEPROM.begin(1000); //Initialasing EEPROM
+  EEPROM.begin(2000); //Initialasing EEPROM
   delay(250);
   if(firstRunCheck())
   {
@@ -115,6 +108,7 @@ void setup() {
   });
 
   ESP.wdtEnable(5000);
+  tgClientId = readTelegramClientId(); //Read client id for send messages to telegram.
 }
 
 void readSerial()
@@ -126,7 +120,7 @@ void readSerial()
     getModemResponse = true;
     if(enabledSendModemResponse)
     {
-      bot.sendMessage(modemResponse, lastChatId);
+      bot.sendMessage(modemResponse, tgClientId);
     }    
   }
 }
@@ -149,7 +143,7 @@ void loop() {
     {
       int index = modemResponse.lastIndexOf(',');
       String smsNumber = modemResponse.substring(index + 1);
-      bot.sendMessage(readSMS(smsNumber), lastChatId);
+      bot.sendMessage(readSMS(smsNumber), tgClientId);
     } 
   }
   
@@ -161,12 +155,12 @@ void initWebServer()
 {
      initAp();
      createWebServer(); // Start the server
-     server.begin();
+     runWebServer();
 
      while ((WiFi.status() != WL_CONNECTED))
      {
        delay(200);
-       server.handleClient();
+       handleClient();
      }     
 }
 
@@ -220,7 +214,7 @@ String scanNetworks(){
 //Message handler.
 void oNnewMsg(FB_msg& msg)
 {
-  lastChatId = msg.chatID;
+  tgClientId = msg.chatID;
 
 #ifdef DEBUG_MODE
   commandHandler(msg.text, msg.chatID);
@@ -351,7 +345,7 @@ void executionNoUsartCommand(String msg, String chatID)
         digitalWrite(GPIO0, HIGH);
         bot.sendMessage("OK", chatID);
       }  
-      else if (msg == "/reset_8266")
+      else if (msg == "/reboot_8266")
       {
         bot.sendMessage("OK", chatID);
         resetModuleFlag = 1;
@@ -436,6 +430,10 @@ void executionNoUsartCommand(String msg, String chatID)
         String smsNumber = msg.substring(10);
         bot.sendMessage(readSMS(smsNumber), chatID);        
       }      
+
+      executeSystemCommands(msg, chatID); //Execute commands to configure the system.
+
+//log in to the system
 }
 
 void timer0_interrupt_handler(void)
@@ -458,106 +456,6 @@ void timer0_interrupt_handler(void)
    } 
 
   timer0_write(ESP.getCycleCount() + TIMER0_DIV_VALUE); //Тактовая частота 80MHz, получаем секунду  
-}
-
-String readStringEeprom(int beginPos, int endPos)
-{
-  String str;
-  for (int i = beginPos; i < endPos; ++i)
-  {
-    str += char(EEPROM.read(i));
-  }
-  return str;
-}
-
-void writeStringEeprom(int beginPos, const String &data)
-{
-    int pos = 0;
-    for (int i = beginPos; i < beginPos + data.length(); ++i)
-    {
-      EEPROM.write(i, data[pos]);
-      pos ++;
-    }
-}
-
-void eepromClear(int beginPos, int endPos)
-{
-  for (int i = beginPos; i < endPos; ++i)
-  {
-    EEPROM.write(i, 0);
-  }
-}
-
-void createWebServer()
-{
-    server.on("/", []() {
-      IPAddress ip = WiFi.softAPIP();
-      String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
-      webServerContent = "<!DOCTYPE HTML>\r\n<html>Esp remote settings ";
-      webServerContent += "<form action=\"/scan\" method=\"POST\"><input type=\"submit\" value=\"scan\"></form>";
-      webServerContent += ipStr;
-      webServerContent += "<p>";
-      webServerContent += wifi_stations;
-      webServerContent += "</p><form method='get' action='setting'><label>SSID: </label><input name='ssid' length=32><input name='pass' length=64><input type='submit'></form>";
-      webServerContent += "</html>";
-      server.send(200, "text/html", webServerContent);
-    });
-
-    server.on("/scan", []() {
-      IPAddress ip = WiFi.softAPIP();
-      String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
- 
-      webServerContent = "<!DOCTYPE HTML>\r\n<html>go back";
-      server.send(200, "text/html", webServerContent);
-    });
- 
-    server.on("/setting", []() {
-      String ssid = server.arg("ssid");
-      String pass = server.arg("pass");
-      
-      if(ssid.length() == 0 || pass.length() == 0 || ssid.length() > EEPROM_CLIENT_SSID_LEN 
-      || pass.length() >  EEPROM_CLIENT_PASSWORD_LEN) 
-      {
-        webServerContent = "{\"Error\":\"Empty ssid or password. Or exceeded max string length.\"}";
-        webStatusCode = 404;
-      }
-      else
-      {
-        if(!saveWifiSettings(ssid, pass)){
-           webServerContent = "{\"Error\":\"Error save to flash.\"}";
-           webStatusCode = 500;
-        }
-        else
-        {
-          webServerContent = "{\"Success\":\"Saved to eeprom... Begin reset to boot into new wifi.\"}";
-          webStatusCode = 200;
-          delay(2000);
-          ESP.reset();
-        }
-      }
-
-      server.sendHeader("Access-Control-Allow-Origin", "*");
-      server.send(webStatusCode, "application/json", webServerContent); 
-    });
-}
-
-//Save wifi settings to eeprom. 
-bool saveWifiSettings(const String &ssid, const String &password)
-{
-    //Clearing eeprom
-    int endDataPos = EEPROM_INIT_WORD_LEN + EEPROM_CLIENT_SSID_LEN + EEPROM_CLIENT_PASSWORD_LEN;
-    eepromClear(0, endDataPos);
-
-    writeStringEeprom(0, INIT_WORD); //Set flag - device no first run.
-    writeStringEeprom(EEPROM_INIT_WORD_LEN, ssid); //Writing wifi ssid.
-    writeStringEeprom(EEPROM_INIT_WORD_LEN + EEPROM_CLIENT_SSID_LEN, password); //Writing wifi pass.
-    
-    if(!EEPROM.commit()){
-        Serial.println("Error write to flash.");
-        return false;
-    }; 
-
-    return true;
 }
 
 void sendSMS(String phone, String message)
@@ -585,7 +483,7 @@ void sendSMS(String phone, String message)
   {
     if(!sendATCommand(cmd[i][0], true, cmd[i][1]))
     {
-      bot.sendMessage("Timeout send AT command.", lastChatId);
+      bot.sendMessage("Timeout send AT command.", tgClientId);
       return;
     }
   }
