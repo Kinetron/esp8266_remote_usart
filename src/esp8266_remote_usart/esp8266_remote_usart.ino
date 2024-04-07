@@ -53,7 +53,7 @@ void setup() {
   digitalWrite(GPIO0, HIGH);
   Serial.begin(9600);
 
-  EEPROM.begin(2000); //Initialasing EEPROM
+  EEPROM.begin(512); //Initialasing EEPROM
   delay(250);
   if(firstRunCheck())
   {

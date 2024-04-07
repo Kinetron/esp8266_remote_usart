@@ -9,6 +9,18 @@ void writeStringEeprom(int beginPos, const String &data)
     for (int i = beginPos; i < beginPos + data.length(); ++i)
     {
       EEPROM.write(i, data[pos]);
+	  yield();
+      pos ++;
+    }
+}
+
+void writeCharEeprom(int beginPos, char *data, int len)
+{
+    int pos = 0;
+    for (int i = beginPos; i < beginPos + len; ++i)
+    {
+      EEPROM.write(i, data[pos]);
+	  yield();
       pos ++;
     }
 }
@@ -18,6 +30,7 @@ void eepromClear(int beginPos, int endPos)
   for (int i = beginPos; i < endPos; ++i)
   {
     EEPROM.write(i, 0);
+	yield();
   }
 }
 
@@ -27,9 +40,22 @@ String readStringEeprom(int beginPos, int len)
   for (int i = beginPos; i < len; ++i)
   {
     str += char(EEPROM.read(i));
+	yield();
   }
   return str;
 }
+
+void readCharEeprom(int beginPos, int len, char *array)
+{
+  int pos = 0;
+  for (int i = beginPos; i < len; ++i)
+  {
+    array[pos]= char(EEPROM.read(i));
+	pos++;
+	yield();
+  }
+}
+
 
 //Save wifi settings to eeprom. 
 bool saveWifiSettings(const String &ssid, const String &password)
@@ -103,23 +129,21 @@ void executeSystemCommands(String msg, String chatID)
   else if(enableChangeSystemSettings && msg.substring(0, 23) == "/set_telegram_client_id")
   {
 	String clientId = msg.substring(24);
-	eepromClear(getTelegramClientIdAddress(), EEPROM_TELEGRAM_CLIENT_ID_LEN);
-	if(!EEPROM.commit()){
-        bot.sendMessage("ERROR", chatID);
-        return;
-    };
-	String str = CELL_WRITED_FLAG + clientId;
-	writeStringEeprom(getTelegramClientIdAddress(), str);
-	if(!EEPROM.commit()){
-        bot.sendMessage("ERROR", chatID);
-        return;
-    };
+    char* data = addZeroToString(EEPROM_TELEGRAM_CLIENT_ID_LEN, CELL_WRITED_FLAG + clientId);
+
+	writeCharEeprom(getTelegramClientIdAddress(), data, EEPROM_TELEGRAM_CLIENT_ID_LEN);
 	
-	bot.sendMessage("OK" + clientId, chatID);
+	if(!EEPROM.commit()){
+        bot.sendMessage("ERROR", chatID);
+        return;
+    };
+    
+	free(data);	
+	bot.sendMessage("OK", chatID);	
   }
   else if(enableChangeSystemSettings && msg.substring(0, 23) == "/get_telegram_client_id")
   {
-	bot.sendMessage(readTelegramClientId(), chatID);
+     bot.sendMessage(readTelegramClientId(), chatID); 
   }
 }
 
@@ -128,7 +152,8 @@ int getSystemPasswordAddress()
 {
   return EEPROM_INIT_WORD_LEN +
          EEPROM_CLIENT_SSID_LEN +
-		 EEPROM_CLIENT_PASSWORD_LEN;
+		 EEPROM_CLIENT_PASSWORD_LEN +
+		 EEPROM_TELEGRAM_CLIENT_ID_LEN;
 }
 
 //EEPROM adress for setting.
@@ -136,15 +161,41 @@ int getTelegramClientIdAddress()
 {
   return EEPROM_INIT_WORD_LEN +
          EEPROM_CLIENT_SSID_LEN +
-		 EEPROM_CLIENT_PASSWORD_LEN +
-		 EEPROM_SYSTEM_PASSWORD_LEN;	
+		 EEPROM_CLIENT_PASSWORD_LEN;
 }
 
-//Read Telegram client id from eeprom.
+String prepareSystemValue(String value)
+{
+  if(value.substring(0, CELL_WRITED_FLAG_LEN) != CELL_WRITED_FLAG) return "";
+  return value.substring(CELL_WRITED_FLAG_LEN); 
+}
+
 String readTelegramClientId()
 {
-  String id = readStringEeprom(getTelegramClientIdAddress(), EEPROM_TELEGRAM_CLIENT_ID_LEN);
-  return "X"+id+"#";
-  if(id.substring(0, CELL_WRITED_FLAG_LEN) != CELL_WRITED_FLAG) return "";
-  return id.substring(CELL_WRITED_FLAG_LEN);    
+  char data[EEPROM_TELEGRAM_CLIENT_ID_LEN]; 	
+  EEPROM.get(getTelegramClientIdAddress(), data); 	
+	 		
+  return prepareSystemValue(data);
+}
+
+//Сomplements the string with zeros to the required length
+char* addZeroToString(int len, String str)
+{
+  char *data = (char *) malloc (len);
+
+  int pos = 0;
+  for(int i = 0; i < EEPROM_TELEGRAM_CLIENT_ID_LEN; ++i)
+  {
+	if(pos < str.length())
+	{
+	  data[i] = str[pos];
+      pos ++;		  
+	}
+	else
+	{
+	  data[i] = 0;	
+	}
+  }
+  
+  return data;  
 }

@@ -10,8 +10,8 @@
 #define EEPROM_INIT_WORD_LEN 7 //The value for determining the first run - len of string INIT_WORD "nofirst".
 #define EEPROM_CLIENT_SSID_LEN 32 //SSID home wifi len.
 #define EEPROM_CLIENT_PASSWORD_LEN 64 //Home wifi password.
-#define EEPROM_SYSTEM_PASSWORD_LEN 32 + CELL_WRITED_FLAG_LEN
 #define EEPROM_TELEGRAM_CLIENT_ID_LEN 15 + CELL_WRITED_FLAG_LEN
+#define EEPROM_SYSTEM_PASSWORD_LEN 64 + CELL_WRITED_FLAG_LEN
 
 #include <Arduino.h>
 #include <string.h>
@@ -19,6 +19,8 @@
 #include <FastBot.h>
 
 void writeStringEeprom(int beginPos, const String &data);
+void writeCharEeprom(int beginPos, char *data, int len);
+void readCharEeprom(int beginPos, int len, char *array);
 void eepromClear(int beginPos, int endPos);
 String readStringEeprom(int beginPos, int len);
 
@@ -34,5 +36,8 @@ int getSystemPasswordAddress();
 //EEPROM adress for setting.
 int getTelegramClientIdAddress();
 
-//Read Telegram client id from eeprom.
+//Сomplements the string with zeros to the required length
+char* addZeroToString(const int len, String str);
+
 String readTelegramClientId();
+String prepareSystemValue(String value);
