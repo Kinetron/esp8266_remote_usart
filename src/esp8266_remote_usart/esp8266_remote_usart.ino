@@ -41,6 +41,7 @@ int resetModuleFlag = 0; //Flag for begin reboot esp8266.
 String modemResponse = "";
 bool getModemResponse = false; //=1 if the modem has answered.
 bool enabledSendModemResponse = true; //Enabled send modem response from bot if it not need.
+int modemCommandTimeout = MODEM_TIMEOUT; //Timeout for waiting for a command response.
 
 FastBot bot(BOT_TOKEN);
 AsyncStream<512> serial(&Serial, '\n'); // указали Stream-объект и символ конца
@@ -441,6 +442,16 @@ void executionNoUsartCommand(String msg, String chatID)
         String smsNumber = msg.substring(10);
         bot.sendMessage(readSMS(smsNumber), chatID);        
       }      
+      else if(msg.substring(0, 18) == "/get_modem_timeout")
+      {
+        bot.sendMessage(String(modemCommandTimeout), chatID);        
+      } 
+      else if(msg.substring(0, 18) == "/set_modem_timeout")
+      {
+        String timeout = msg.substring(19);
+        modemCommandTimeout = timeout.toInt();
+        bot.sendMessage("OK", chatID);        
+      }
 
       executeSystemCommands(msg, chatID); //Execute commands to configure the system.
 
@@ -486,18 +497,23 @@ void sendSMS(String phone, String message)
   const String cmd[3][2] = 
   {
     { "AT+CMGF=0", "OK"}, //Turning on the PDU mode. 
-    { "AT+CMGS=" + (String)PDUlen, "> "}, //We send the length of the PDU packet.
+    { "AT+CMGS=" + (String)PDUlen, ">"}, //We send the length of the PDU packet.
     { PDUPack + (String)((char)26), "OK"} //After the PDU package, we send Ctrl+Z.
   };
 
+  int timeout = modemCommandTimeout;
+  modemCommandTimeout = modemCommandTimeout * 2;
   for(int i = 0; i < 3; i++)
   {
     if(!sendATCommand(cmd[i][0], true, cmd[i][1]))
     {
       bot.sendMessage("Timeout send AT command.", tgClientId);
+      modemCommandTimeout = timeout;
       return;
     }
   }
+
+  modemCommandTimeout = timeout;
 }
 
 bool sendATCommand(String cmd, bool waiting, String response) 
@@ -507,8 +523,8 @@ bool sendATCommand(String cmd, bool waiting, String response)
   Serial.println(cmd);
   if (waiting) //If necessary, wait for a response.
   {
-    long timeout = 0;
-    while (timeout < MODEM_TIMEOUT) 
+    int timeout = 0;
+    while (timeout < modemCommandTimeout) 
     {
       delay(DELAY_WAIT_AT_COMMAND);
       readSerial();
