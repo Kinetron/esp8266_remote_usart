@@ -109,6 +109,13 @@ void setup() {
 
   ESP.wdtEnable(5000);
   tgClientId = readTelegramClientId(); //Read client id for send messages to telegram.
+  
+  //The modem does not send data unless it is accessed once. Perhaps this is not a problem on the modem, but is a usart problem?
+  enabledSendModemResponse = false;
+  sendATCommand("AT", true, "OK");
+  enabledSendModemResponse = true;
+
+  bot.sendMessage("The device is loaded.", tgClientId);
 }
 
 void readSerial()
@@ -214,7 +221,7 @@ String scanNetworks(){
 //Message handler.
 void oNnewMsg(FB_msg& msg)
 {
-  tgClientId = msg.chatID;
+  //tgClientId = msg.chatID;
 
 #ifdef DEBUG_MODE
   commandHandler(msg.text, msg.chatID);
@@ -330,7 +337,11 @@ void executionNoUsartCommand(String msg, String chatID)
       if (msg == "/hello")
       {
         bot.sendMessage("Hi people!", chatID);
-      }        
+      } 
+      else if (msg == "/tg_client_id")
+      {
+        bot.sendMessage(chatID, chatID);
+      }
       else if (msg == "/rst_ext")
       {
         digitalWrite(GPIO2, LOW);
