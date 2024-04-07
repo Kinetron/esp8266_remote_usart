@@ -6,9 +6,11 @@
 #include <AsyncStream.h>
 #include <pdulib.h>
 #include <Pinger.h>
-#include <ESP8266HTTPClient.h>
 #include <ESP8266WebServer.h>
-#include <EEPROM.h>
+#include "src/library/UCS2Converter/UCS2Converter.h"
+#include "src/library/SystemSettings/SystemSettings.h"
+#include "src/library/WebServer/WebServer.h"
+
 #include "ext_config.h" //Private param. Bot password, bot id.
 
 extern "C"
@@ -16,36 +18,34 @@ extern "C"
   #include <lwip/icmp.h> // needed for icmp packet definitions
 }
 
-//#define DEBUG_MODE //Disabled password access to bot.
+#define DEBUG_MODE //Disabled password access to bot.
 #define DEFAULT_SSID "esp8266_rt"
 #define GPIO2 2
 #define GPIO0 0
 #define TIMER0_DIV_VALUE 80000000L * 10 //Сlock frequency 80MHz, 10sec interrupt.
 #define PING_IP "8.8.8.8"
-#define EEPROM_INIT_WORD_LEN 7 //The value for determining the first run - len of string INIT_WORD "nofirst".
-#define INIT_WORD "nofirst"
-#define EEPROM_CLIENT_SSID_LEN 32 //SSID home wifi len.
-#define EEPROM_CLIENT_PASSWORD_LEN 64 //Home wifi password.
 #define WIFI_СONNECTION_ATTEMPTS 30 //Max attempts count when device reboot.
 #define WAIT_PRESS_FW_BTN_ATTEMPTS 8
 #define DELAY_WAIT_PRESS_FW_BTN_ATTEMPTS 250
+#define MODEM_TIMEOUT 25000
+#define DELAY_WAIT_AT_COMMAND 50
 
-String lastChatId = ""; //Telegram chat id.
-String webServerContent; //web server content
-String wifi_stations; //Available access points, from scan.
-int webStatusCode; //Web server last status code.
+String tgClientId = ""; //Telegram client id.
+extern String wifi_stations; //Available access points, from scan.
 PDU pduDecoder = PDU(1024); //UTF8_BUFFSIZE
 
 //Work mode.
 //0-lock.
 int mode = 0;
 int resetModuleFlag = 0; //Flag for begin reboot esp8266.
+String modemResponse = "";
+bool getModemResponse = false; //=1 if the modem has answered.
+bool enabledSendModemResponse = true; //Enabled send modem response from bot if it not need.
+int modemCommandTimeout = MODEM_TIMEOUT; //Timeout for waiting for a command response.
 
 FastBot bot(BOT_TOKEN);
 AsyncStream<512> serial(&Serial, '\n'); // указали Stream-объект и символ конца
 Pinger pinger; // Set global to avoid object removing after setup() routine.
-//Establishing Local server at port 80 whenever required
-ESP8266WebServer server(80);
 
 void setup() {
   pinMode(GPIO2, OUTPUT);
@@ -54,7 +54,7 @@ void setup() {
   digitalWrite(GPIO0, HIGH);
   Serial.begin(9600);
 
-  EEPROM.begin(1000); //Initialasing EEPROM
+  EEPROM.begin(512); //Initialasing EEPROM
   delay(250);
   if(firstRunCheck())
   {
@@ -109,6 +109,28 @@ void setup() {
   });
 
   ESP.wdtEnable(5000);
+  tgClientId = readTelegramClientId(); //Read client id for send messages to telegram.
+  
+  //The modem does not send data unless it is accessed once. Perhaps this is not a problem on the modem, but is a usart problem?
+  enabledSendModemResponse = false;
+  sendATCommand("AT", true, "OK");
+  enabledSendModemResponse = true;
+
+  bot.sendMessage("The device is loaded.", tgClientId);
+}
+
+void readSerial()
+{
+  if(serial.available())
+  {
+    modemResponse = String(serial.buf);
+    modemResponse.trim();
+    getModemResponse = true;
+    if(enabledSendModemResponse)
+    {
+      bot.sendMessage(modemResponse, tgClientId);
+    }    
+  }
 }
 
 void loop() {
@@ -121,9 +143,16 @@ void loop() {
 #endif
   
   //If data receive.
-  if (allowSend && serial.available()) 
+  if (allowSend) 
   {
-    bot.sendMessage(String(serial.buf), lastChatId);
+    readSerial();
+    //SMS has been received: +CMTI: "SM",4
+    if(modemResponse.startsWith("+CMTI:"))
+    {
+      int index = modemResponse.lastIndexOf(',');
+      String smsNumber = modemResponse.substring(index + 1);
+      bot.sendMessage(readSMS(smsNumber), tgClientId);
+    } 
   }
   
   bot.tick(); 
@@ -134,12 +163,12 @@ void initWebServer()
 {
      initAp();
      createWebServer(); // Start the server
-     server.begin();
+     runWebServer();
 
      while ((WiFi.status() != WL_CONNECTED))
      {
        delay(200);
-       server.handleClient();
+       handleClient();
      }     
 }
 
@@ -193,7 +222,7 @@ String scanNetworks(){
 //Message handler.
 void oNnewMsg(FB_msg& msg)
 {
-  lastChatId = msg.chatID;
+  //tgClientId = msg.chatID;
 
 #ifdef DEBUG_MODE
   commandHandler(msg.text, msg.chatID);
@@ -309,7 +338,11 @@ void executionNoUsartCommand(String msg, String chatID)
       if (msg == "/hello")
       {
         bot.sendMessage("Hi people!", chatID);
-      }        
+      } 
+      else if (msg == "/tg_client_id")
+      {
+        bot.sendMessage(chatID, chatID);
+      }
       else if (msg == "/rst_ext")
       {
         digitalWrite(GPIO2, LOW);
@@ -324,7 +357,7 @@ void executionNoUsartCommand(String msg, String chatID)
         digitalWrite(GPIO0, HIGH);
         bot.sendMessage("OK", chatID);
       }  
-      else if (msg == "/reset_8266")
+      else if (msg == "/reboot_8266")
       {
         bot.sendMessage("OK", chatID);
         resetModuleFlag = 1;
@@ -351,11 +384,78 @@ void executionNoUsartCommand(String msg, String chatID)
           overflow = "overflow bufer " +  String(pduDecoder.getOverflow());
         }
 
-        String data = String(pduDecoder.getSender()) + " " + String(pduDecoder.getTimeStamp())
+        String data = String(pduDecoder.getSender()) + " " + convertPduTimeFormat(String(pduDecoder.getTimeStamp()))
          + " " + String(pduDecoder.getText()) + 
         " " + overflow;
         bot.sendMessage(data, chatID);     
       }
+      else if(msg.substring(0, 4) == "/ucs") //Decode ussd response from UCS2.
+      {
+        String ucs = msg.substring(5);
+        bot.sendMessage(decodeUCS2(ucs), chatID);     
+      }
+      else if(msg.substring(0, 8) == "/enc_ucs") //Encode to UCS2.
+      {
+        String str = msg.substring(9);
+        bot.sendMessage(encodeUCS2(str), chatID);     
+      }
+      else if(msg.substring(0, 9) == "/send_sms")
+      {
+        String body = msg.substring(10);
+        int index = body.lastIndexOf(' ');
+        String phone = body.substring(0, index);
+        String message = body.substring(index + 1);
+        sendSMS(phone, message); 
+      }
+      else if(msg.substring(0, 5) == "/ussd") //Execute USSD.
+      {
+        String ussd = msg.substring(6);
+        enabledSendModemResponse = false;
+        bot.sendMessage(executeUssd(ussd), chatID);
+        enabledSendModemResponse = true;
+      }
+      else if(msg.substring(0, 5) == "/call") //Call to number.
+      {
+        String phone = msg.substring(6);
+        if(!sendAtCommandWithoutSendingToBot("ATD " + phone + ";"))
+        {
+          bot.sendMessage("ERROR " + modemResponse, chatID);
+        }
+        else
+        {
+          bot.sendMessage("OK", chatID);
+        }
+      }
+      else if(msg.substring(0, 8) == "/hang_up")
+      {
+        if(!sendAtCommandWithoutSendingToBot("ATH0"))
+        {
+          bot.sendMessage("ERROR " + modemResponse, chatID);
+        }
+        else
+        {
+          bot.sendMessage("OK", chatID);
+        }
+      }
+      else if(msg.substring(0, 9) == "/read_sms")
+      {
+        String smsNumber = msg.substring(10);
+        bot.sendMessage(readSMS(smsNumber), chatID);        
+      }      
+      else if(msg.substring(0, 18) == "/get_modem_timeout")
+      {
+        bot.sendMessage(String(modemCommandTimeout), chatID);        
+      } 
+      else if(msg.substring(0, 18) == "/set_modem_timeout")
+      {
+        String timeout = msg.substring(19);
+        modemCommandTimeout = timeout.toInt();
+        bot.sendMessage("OK", chatID);        
+      }
+
+      executeSystemCommands(msg, chatID); //Execute commands to configure the system.
+
+//log in to the system
 }
 
 void timer0_interrupt_handler(void)
@@ -380,102 +480,211 @@ void timer0_interrupt_handler(void)
   timer0_write(ESP.getCycleCount() + TIMER0_DIV_VALUE); //Тактовая частота 80MHz, получаем секунду  
 }
 
-String readStringEeprom(int beginPos, int endPos)
+void sendSMS(String phone, String message)
 {
-  String str;
-  for (int i = beginPos; i < endPos; ++i)
-  {
-    str += char(EEPROM.read(i));
-  }
-  return str;
-}
+   //Preparing the PDU package. To save memory, we will use pointers and links.
+  String *ptrphone = &phone;
+  String *ptrmessage = &message;
 
-void writeStringEeprom(int beginPos, const String &data)
-{
-    int pos = 0;
-    for (int i = beginPos; i < beginPos + data.length(); ++i)
+  String PDUPack;
+  String *ptrPDUPack = &PDUPack; 
+
+  int PDUlen = 0; //Variable for storing the length of a PDU packet without SCA.
+  int *ptrPDUlen = &PDUlen;
+
+  getPDUPack(ptrphone, ptrmessage, ptrPDUPack, ptrPDUlen);
+
+  const String cmd[3][2] = 
+  {
+    { "AT+CMGF=0", "OK"}, //Turning on the PDU mode. 
+    { "AT+CMGS=" + (String)PDUlen, ">"}, //We send the length of the PDU packet.
+    { PDUPack + (String)((char)26), "OK"} //After the PDU package, we send Ctrl+Z.
+  };
+
+  int timeout = modemCommandTimeout;
+  modemCommandTimeout = modemCommandTimeout * 2;
+  for(int i = 0; i < 3; i++)
+  {
+    if(!sendATCommand(cmd[i][0], true, cmd[i][1]))
     {
-      EEPROM.write(i, data[pos]);
-      pos ++;
+      bot.sendMessage("Timeout send AT command.", tgClientId);
+      modemCommandTimeout = timeout;
+      return;
     }
-}
-
-void eepromClear(int beginPos, int endPos)
-{
-  for (int i = beginPos; i < endPos; ++i)
-  {
-    EEPROM.write(i, 0);
   }
+
+  modemCommandTimeout = timeout;
 }
 
-void createWebServer()
+bool sendATCommand(String cmd, bool waiting, String response) 
 {
-    server.on("/", []() {
-      IPAddress ip = WiFi.softAPIP();
-      String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
-      webServerContent = "<!DOCTYPE HTML>\r\n<html>Esp remote settings ";
-      webServerContent += "<form action=\"/scan\" method=\"POST\"><input type=\"submit\" value=\"scan\"></form>";
-      webServerContent += ipStr;
-      webServerContent += "<p>";
-      webServerContent += wifi_stations;
-      webServerContent += "</p><form method='get' action='setting'><label>SSID: </label><input name='ssid' length=32><input name='pass' length=64><input type='submit'></form>";
-      webServerContent += "</html>";
-      server.send(200, "text/html", webServerContent);
-    });
-
-    server.on("/scan", []() {
-      IPAddress ip = WiFi.softAPIP();
-      String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
- 
-      webServerContent = "<!DOCTYPE HTML>\r\n<html>go back";
-      server.send(200, "text/html", webServerContent);
-    });
- 
-    server.on("/setting", []() {
-      String ssid = server.arg("ssid");
-      String pass = server.arg("pass");
+  getModemResponse = false;
+  modemResponse = "";
+  Serial.println(cmd);
+  if (waiting) //If necessary, wait for a response.
+  {
+    int timeout = 0;
+    while (timeout < modemCommandTimeout) 
+    {
+      delay(DELAY_WAIT_AT_COMMAND);
+      readSerial();
       
-      if(ssid.length() == 0 || pass.length() == 0 || ssid.length() > EEPROM_CLIENT_SSID_LEN 
-      || pass.length() >  EEPROM_CLIENT_PASSWORD_LEN) 
+      int rPos = modemResponse.indexOf("\r");
+      if(rPos != -1)
       {
-        webServerContent = "{\"Error\":\"Empty ssid or password. Or exceeded max string length.\"}";
-        webStatusCode = 404;
+        modemResponse = modemResponse.substring(0, rPos);
       }
-      else
+    
+      if(modemResponse == response)
       {
-        if(!saveWifiSettings(ssid, pass)){
-           webServerContent = "{\"Error\":\"Error save to flash.\"}";
-           webStatusCode = 500;
-        }
-        else
-        {
-          webServerContent = "{\"Success\":\"Saved to eeprom... Begin reset to boot into new wifi.\"}";
-          webStatusCode = 200;
-          delay(2000);
-          ESP.reset();
-        }
+        return true;  
       }
 
-      server.sendHeader("Access-Control-Allow-Origin", "*");
-      server.send(webStatusCode, "application/json", webServerContent); 
-    });
+      //Wait OK.
+      if(getModemResponse)
+      {
+        timeout = 0;
+        getModemResponse = false;        
+      }
+
+      timeout+= DELAY_WAIT_AT_COMMAND;
+    };
+
+    if(!getModemResponse) return false;
+  }
+
+  return true;
 }
 
-//Save wifi settings to eeprom. 
-bool saveWifiSettings(const String &ssid, const String &password)
+String executeUssd(String ussd)
 {
-    //Clearing eeprom
-    int endDataPos = EEPROM_INIT_WORD_LEN + EEPROM_CLIENT_SSID_LEN + EEPROM_CLIENT_PASSWORD_LEN;
-    eepromClear(0, endDataPos);
+  if(!sendATCommand("AT+CUSD=1,\""+ ussd + "\"", true, "OK")) return "ERROR";    
+  if(!waitModemResponse("+CUSD:")) return "ERROR";
+ 
+  //If the response contains quotation marks, it means there is a message (a guard against "empty" USSD responses).
+  if (modemResponse.indexOf("\"") > -1) 
+  { 
+    String msg = modemResponse.substring(modemResponse.indexOf("\"") + 1);
+    msg = msg.substring(0, msg.indexOf("\""));
+    return decodeUCS2(msg);      
+  }
 
-    writeStringEeprom(0, INIT_WORD); //Set flag - device no first run.
-    writeStringEeprom(EEPROM_INIT_WORD_LEN, ssid); //Writing wifi ssid.
-    writeStringEeprom(EEPROM_INIT_WORD_LEN + EEPROM_CLIENT_SSID_LEN, password); //Writing wifi pass.
-    
-    if(!EEPROM.commit()){
-        Serial.println("Error write to flash.");
-        return false;
-    }; 
+  return " "; 
+}
+
+bool waitModemResponse(String startsWith)
+{
+  getModemResponse = false;
+
+  long timeout = 0;
+  while (timeout < MODEM_TIMEOUT) 
+  {
+    delay(DELAY_WAIT_AT_COMMAND);
+    readSerial();
+  
+    if(modemResponse.startsWith(startsWith) || startsWith.length() == 0)
+    {
+      return true;        
+    }
+
+    timeout+= DELAY_WAIT_AT_COMMAND; 
+  }
+
+  return false;
+}
+
+bool waitPduModemResponse()
+{
+  getModemResponse = false;
+
+  long timeout = 0;
+  while (timeout < MODEM_TIMEOUT) 
+  {
+    delay(DELAY_WAIT_AT_COMMAND);
+    readSerial();
+  
+    if(isHexString(modemResponse))
+    {
+      return true;        
+    }
+
+    timeout+= DELAY_WAIT_AT_COMMAND; 
+  }
+
+  return false;
+}
+
+bool sendAtCommandWithoutSendingToBot(String cmd)
+{
+  enabledSendModemResponse = false;
+  bool result = sendATCommand(cmd, true, "OK");
+  enabledSendModemResponse = true;
+  return result;
+}
+
+String readSMS(String smsNumber)
+{
+  enabledSendModemResponse = false;
+  sendATCommand("AT+CMGR=" + smsNumber, false, "");
+  if(!waitModemResponse("+CMGR")) //Modem response +CMGR: 1,"",37
+  {
+    return "ERROR READ:" + modemResponse;
+  }
+  
+  if(!waitPduModemResponse())
+  {
+    return "ERROR PDU:" + modemResponse;
+  }
+     
+  String pdu = modemResponse;
+  if(!waitModemResponse("OK")) //Modem response OK.
+  {
+    return "ERROR END:" + modemResponse;
+  }
+  
+  enabledSendModemResponse = true;
+  
+  return decodePdu(pdu.c_str());
+}
+
+String decodePdu(String pdu)
+{
+  int result = pduDecoder.decodePDU(pdu.c_str()); 
+  if (result < 0) return "ERROR " + String(result); 
+
+  //The number of characters that did not fit into the buffer.
+  String overflow = "";
+  if(pduDecoder.getOverflow() > 0)
+  {
+    overflow = "overflow bufer " +  String(pduDecoder.getOverflow());
+  }
+
+  String data = "Content: " + String(pduDecoder.getSender()) + " " + convertPduTimeFormat(String(pduDecoder.getTimeStamp()))
+    + " " + String(pduDecoder.getText()) + 
+    " " + overflow;
+
+  return data;
+}
+
+//Check if string is hex.
+bool isHexString(String str)
+{
+   for(int i = 0; i< str.length(); i++)
+   {
+     if(!isHexadecimalDigit(str[i])) return false;
+   }
 
     return true;
+}
+
+//Convert YYMM DD HH MM SS to DD.MM.YY HH:MM:SS.
+String convertPduTimeFormat(String str)
+{
+  String result =  str.substring(4, 6) + "."
+                  + str.substring(2, 4) + "."
+                  + str.substring(0, 2) + " "
+                  + str.substring(6, 8) + ":"
+                  + str.substring(8, 10) + ":"
+                  + str.substring(10, 12);
+  return result; 
 }
