@@ -204,7 +204,7 @@ String executeUssd(String ussd)
     return decodeUCS2(msg);      
   }
 
-  return " "; 
+  return "ERROR"; 
 }
 
 void sendSMS(String phone, String message)
