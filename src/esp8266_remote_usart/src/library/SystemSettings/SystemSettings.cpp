@@ -120,30 +120,37 @@ void executeSystemCommands(String msg, String chatID)
 	
 	bot.sendMessage("OK", chatID);
   }
-  else if(msg.substring(0, 18) == "/get_wifi_settings")
-  {
-	String ssid = readStringEeprom(EEPROM_INIT_WORD_LEN, EEPROM_CLIENT_SSID_LEN); 
-    String password = readStringEeprom(EEPROM_INIT_WORD_LEN + EEPROM_CLIENT_SSID_LEN, EEPROM_CLIENT_SSID_LEN + EEPROM_CLIENT_PASSWORD_LEN);
-	bot.sendMessage("SSID:" + ssid +";PSWD:" + password, chatID);
-  }
   else if(enableChangeSystemSettings && msg.substring(0, 23) == "/set_telegram_client_id")
   {
 	String clientId = msg.substring(24);
-    char* data = addZeroToString(EEPROM_TELEGRAM_CLIENT_ID_LEN, CELL_WRITED_FLAG + clientId);
-
-	writeCharEeprom(getTelegramClientIdAddress(), data, EEPROM_TELEGRAM_CLIENT_ID_LEN);
-	
-	if(!EEPROM.commit()){
-        bot.sendMessage("ERROR", chatID);
-        return;
-    };
-    
-	free(data);	
-	bot.sendMessage("OK", chatID);	
-  }
+    if(saveTelegramClientId(clientId))
+	{
+	  bot.sendMessage("OK", chatID);		
+	}
+	else
+	{
+	  bot.sendMessage("ERROR", chatID);
+	}		
+  }  
   else if(enableChangeSystemSettings && msg.substring(0, 23) == "/get_telegram_client_id")
   {
-     bot.sendMessage(readTelegramClientId(), chatID); 
+    bot.sendMessage(readTelegramClientId(), chatID); 
+  }
+  else if(enableChangeSystemSettings && msg.substring(0, 14) == "/set_bot_token")
+  {
+	String token = msg.substring(15);
+    if(saveBotToken(token))
+	{
+	  bot.sendMessage("OK", chatID);		
+	}
+	else
+	{
+	  bot.sendMessage("ERROR", chatID);
+	}		
+  }
+  else if(enableChangeSystemSettings && msg.substring(0, 14) == "/get_bot_token")
+  {
+	bot.sendMessage(readBotToken(), chatID);		
   }
 }
 
@@ -162,6 +169,15 @@ int getTelegramClientIdAddress()
   return EEPROM_INIT_WORD_LEN +
          EEPROM_CLIENT_SSID_LEN +
 		 EEPROM_CLIENT_PASSWORD_LEN;
+}
+
+//EEPROM adress for setting.
+int getBotTokenAddress()
+{
+  return EEPROM_INIT_WORD_LEN +
+         EEPROM_CLIENT_SSID_LEN +
+		 EEPROM_CLIENT_PASSWORD_LEN+
+		 EEPROM_TELEGRAM_CLIENT_ID_LEN;
 }
 
 String prepareSystemValue(String value)
@@ -198,4 +214,47 @@ char* addZeroToString(int len, String str)
   }
   
   return data;  
+}
+
+//Save the ID of the client to whom the messages will be sent.
+bool saveTelegramClientId(String clientId)
+{
+  char* data = addZeroToString(EEPROM_TELEGRAM_CLIENT_ID_LEN, CELL_WRITED_FLAG + clientId);
+  writeCharEeprom(getTelegramClientIdAddress(), data, EEPROM_TELEGRAM_CLIENT_ID_LEN);
+	
+  if(!EEPROM.commit()){
+	  free(data);
+      return false;
+  };
+    
+  free(data);
+  return true;
+}
+
+//Return SSID and BSSID and RSSI:  Abc 00:1A:70:DE:C1:68 RSSI: -68 dBm
+String getWiFiStatus()
+{
+   return WiFi.SSID() + " " + WiFi.BSSIDstr() + " " + WiFi.RSSI();
+}
+
+bool saveBotToken(String token)
+{
+  char* data = addZeroToString(EEPROM_TELEGRAM_BOT_TOKEN_LEN, CELL_WRITED_FLAG + token);
+  writeCharEeprom(getBotTokenAddress(), data, EEPROM_TELEGRAM_CLIENT_ID_LEN);
+	
+  if(!EEPROM.commit()){
+	  free(data);
+      return false;
+  };
+
+  free(data);
+  return true;
+}
+
+String readBotToken()
+{
+  char data[EEPROM_TELEGRAM_BOT_TOKEN_LEN]; 	
+  EEPROM.get(getBotTokenAddress(), data); 	
+	 		
+  return prepareSystemValue(data);	
 }
