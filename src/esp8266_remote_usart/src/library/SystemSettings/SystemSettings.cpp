@@ -96,6 +96,11 @@ void executeSystemCommands(String msg, String chatID)
 	  bot.sendMessage("OK", chatID);
 	}
   }
+  if (msg.substring(0, 7) == "/logout")
+  {
+	enableChangeSystemSettings = false;  
+	bot.sendMessage("OK", chatID); 
+  }
   else if(enableChangeSystemSettings && msg.substring(0, 9) == "/set_ssid")
   {
 	String ssid = msg.substring(10);
@@ -132,7 +137,7 @@ void executeSystemCommands(String msg, String chatID)
 	  bot.sendMessage("ERROR", chatID);
 	}		
   }  
-  else if(enableChangeSystemSettings && msg.substring(0, 23) == "/get_telegram_client_id")
+  else if(enableChangeSystemSettings && msg.substring(0, 23) == "/get_telegram_client_id") //Not work problem wite to flash.
   {
     bot.sendMessage(readTelegramClientId(), chatID); 
   }
