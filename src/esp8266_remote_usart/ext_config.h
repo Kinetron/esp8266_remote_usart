@@ -1,4 +1,2 @@
-#define ACTIVATION_PASSWORD "abc" //Access for bot.
-#define WIFI_SSID "TP_Link" //SSID home wifi
-#define WIFI_PASS "12345678"
-#define BOT_TOKEN "102:fdfjkdfdffd" //Bot token.
+#define BOT_ACCESS_PASSWORD "9080706050" //Password to unlock access to the bot
+#define BOT_TOKEN "123:abc-987"

@@ -27,17 +27,24 @@ esp8266-ping(https://github.com/bluemurder/esp8266-ping)
 
 In ext_config.h set the bot access password and the bot token.
 
+Programming scheme.
+![programming scheme](./doc/programming_scheme.jpg)
+
+To program, you must simultaneously press the RESET and FLASH buttons.  Release the RESET, release FLASH. Click the "Upload" button in the Arduino IDE.
 
 **Initial setup**
 
 After flashing the board, the device will switch to the wifi settings standby mode.
-It is necessary to connect to the "esp8266_rt" network
+It is necessary to connect to the "esp8266_rt" network.
+Default IP address for web page 192.168.4.1.
 Enter the wifi network parameters and the client ID.
 
 If the client ID is set, the bot will send the data received via USART to the chat with this user.
 
 
-If the bot has started and connected to the wif i network, a message will be sent to the chat.
+If the bot has started and connected to the wif i network, a message will be sent to the chat. Bot send "The device is loaded.".
+
+If there is no Internet access and you need to change your WiFi network settings, you need to turn off the router (so that the device loses the network and restarts after 20sec), press the FLASH button. Wait for the blue LED to light up(about 30 sec), release the button. The blue LED will blink three times. Web server will be running. In main page you can change the settings.
 
 **List of available commands:**
 

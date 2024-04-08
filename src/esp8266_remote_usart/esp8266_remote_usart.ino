@@ -13,6 +13,7 @@
 
 #include "ext_config.h" //Private param. Bot password, bot id.
 
+#define BLUE_LED_PIN 1
 #define DEBUG_MODE //Disabled password access to bot.
 #define TIMER0_DIV_VALUE 80000000L * 10 //Сlock frequency 80MHz, 10sec interrupt.
 #define WAIT_PRESS_FW_BTN_ATTEMPTS 8
@@ -53,6 +54,9 @@ void setup() {
   {
     if(waitPressFwButton()) //Check if enabled set wifi settings mode.
     {      
+      blinkBlueLed();
+      blinkBlueLed();
+      blinkBlueLed();
       initWebServer();
       return;
     }    
@@ -175,6 +179,7 @@ void oNnewMsg(FB_msg& msg)
 bool waitPressFwButton()
 {
    pinMode(GPIO0, INPUT);
+   pinMode(BLUE_LED_PIN, OUTPUT); 
    int count = 0;
    bool pressed = false;
    
@@ -184,7 +189,7 @@ bool waitPressFwButton()
      if(state == LOW)
      {       
        pressed = true;
-       digitalWrite(GPIO0, LOW);
+       digitalWrite(BLUE_LED_PIN, LOW);
        Serial.println("Press fw btn");
        break;
      }
@@ -201,7 +206,7 @@ bool waitPressFwButton()
      if(state == HIGH)
      {
        Serial.println("Release fw btn");
-       digitalWrite(GPIO0, HIGH);
+       digitalWrite(BLUE_LED_PIN, HIGH);
        return true;
      }
      delay(DELAY_WAIT_PRESS_FW_BTN_ATTEMPTS);
@@ -209,6 +214,15 @@ bool waitPressFwButton()
    }
 
    return false; 
+}
+
+void blinkBlueLed()
+{
+  pinMode(BLUE_LED_PIN, OUTPUT);
+  digitalWrite(BLUE_LED_PIN, LOW);
+  delay(500);
+  digitalWrite(BLUE_LED_PIN, HIGH);
+  delay(500);
 }
 
 void commandHandler(String msg, String chatID)
