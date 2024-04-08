@@ -47,6 +47,7 @@ If the bot has started and connected to the wif i network, a message will be sen
 If there is no Internet access and you need to change your WiFi network settings, you need to turn off the router (so that the device loses the network and restarts after 20sec), press the FLASH button. Wait for the blue LED to light up(about 30 sec), release the button. The blue LED will blink three times. Web server will be running. In main page you can change the settings.
 
 **List of available commands:**
+<pre>/u show startup-config</pre> - send to serial port string "show startup-config". If the external device is responding, it will be decoded and sent to the telegram chat.
 
 <pre>/unlock 9080706050 </pre> - get access to the bot. 9080706050 - password.
 It work if <pre>#define DEBUG_MODE</pre> the line is commented
