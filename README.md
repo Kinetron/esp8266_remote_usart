@@ -128,4 +128,21 @@ To enter the system settings, you must enter a password. The default password is
  Response - "OK".
 
  <pre>/get_telegram_client_id</pre> - set the ID of the client to which all messages from the serial port will be sent
- Response - "OK".
+ Response - "OK".<br><br>
+
+**An over-the-air firmware update (OTA update)**
+
+To update the firmware via telegram chat, you need to:
+
+1. Create a binary file in Arduino IDE.
+![сonnection diagram](./doc/otaFw1.jpg)
+It find in build folder:
+![сonnection diagram](./doc/otaFw2.jpg)
+
+2. Add *.bin to gzip.
+3. Put *.gz file to telegram chat, add a signature(password 908070605060) to the file
+![сonnection diagram](./doc/otaFw3.jpg)
+
+The device will respond <pre>OTA firmware...</pre>
+After updating the firmware, it will respond <pre>OK</pre>
+If everything is fine, it will update the firmware and reboot.
