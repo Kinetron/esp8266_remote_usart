@@ -13,6 +13,8 @@
 
 #include "ext_config.h" //Private param. Bot password, bot id.
 
+#define FIRMWARE_VERSION "1.0.2"
+
 #define BLUE_LED_PIN 1
 #define DEBUG_MODE //Disabled password access to bot.
 #define TIMER0_DIV_VALUE 80000000L * 10 //Сlock frequency 80MHz, 10sec interrupt.
@@ -79,7 +81,7 @@ void setup() {
   //The modem does not send data unless it is accessed once. Perhaps this is not a problem on the modem, but is a usart problem?
   activateModemPort();
 
-  bot.sendMessage("The device is loaded.", tgClientId);
+  bot.sendMessage("The device is loaded. FW Version " + String(FIRMWARE_VERSION), tgClientId);
 }
 
 void readSerial()
@@ -140,9 +142,15 @@ bool firstRunCheck()
 //Message handler.
 void oNnewMsg(FB_msg& msg)
 {
+  //Update firmware.
+  if (msg.OTA && msg.text == FIRMWARE_UPDATE_PASSWORD) 
+  {
+    int status = bot.update();
+    if(status != 1)  bot.sendMessage(String(status), msg.chatID);     
+  }
 
 #ifdef DEBUG_MODE
-  commandHandler(msg.text, msg.chatID);
+  commandHandler(msg);
   return;
 #endif
 
@@ -167,7 +175,7 @@ void oNnewMsg(FB_msg& msg)
 
     //Command handler mode.
     case 1:
-       commandHandler(msg.text, msg.chatID);
+       commandHandler(msg);
     break;
 
     default:
@@ -225,18 +233,18 @@ void blinkBlueLed()
   delay(500);
 }
 
-void commandHandler(String msg, String chatID)
+void commandHandler(FB_msg& data)
 {
     //Command for sent to usart.
-    if(msg[0] == 'u')
+    if(data.text[0] == 'u')
     {
-       String atCommand = msg.substring(2); //Cut 'u' and ' '.
+       String atCommand = data.text.substring(2); //Cut 'u' and ' '.
        Serial.println(atCommand);   
     }
     else
-    {
-      executeCommand(msg, chatID);
-      executeSystemCommands(msg, chatID); //Execute commands to configure the system.
+    {    
+      executeCommand(data.text, data.chatID);
+      executeSystemCommands(data.text, data.chatID); //Execute commands to configure the system.
     }
 }
 
