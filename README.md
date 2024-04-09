@@ -12,7 +12,13 @@ This allows you to remotely control the equipment.
 This is very necessary when setting up new equipment and various tests.
 It can be used to control any equipment via a serial port.
 
-The firmware has been extended to control the GSM modem.
+The firmware extended to control the GSM modem.
+In the photo shows the connection of the modem to the esp-01.
+![connect to modem](./doc/device.jpg)
+![сonnection diagram](./doc/modemCircuit.jpg)
+
+The USART ESP8266 is connected via jumper to a USB serial converter CP2102 for firmware. Or to the modem.
+
 
 The device has a ping watchdog. By default ping 8.8.8.8 host. If there is no internet for 10 seconds, the device restart.
 
@@ -47,6 +53,7 @@ If the bot has started and connected to the wif i network, a message will be sen
 If there is no Internet access and you need to change your WiFi network settings, you need to turn off the router (so that the device loses the network and restarts after 20sec), press the FLASH button. Wait for the blue LED to light up(about 30 sec), release the button. The blue LED will blink three times. Web server will be running. In main page you can change the settings.
 
 **List of available commands:**
+<pre>/u show startup-config</pre> - send to serial port string "show startup-config". If the external device is responding, it will be decoded and sent to the telegram chat.
 
 <pre>/unlock 9080706050 </pre> - get access to the bot. 9080706050 - password.
 It work if <pre>#define DEBUG_MODE</pre> the line is commented
@@ -76,8 +83,7 @@ Response - "OK".
 <pre>/ucs 002a003100350030002a0032002a00330032003300390031002a00360039003100370037002a00310023</pre> - decodes the result of the USSD response in UCS2 format.
 Response - "150 2 32391 69177 1#".
 
-<pre>/enc_ucs test</pre> - encode string to UCS2. Response - "0074006500730074".
-
+<pre>/enc_ucs test</pre> - encode string to UCS2. Response - "0074006500730074". <br/><br/>
 
 **Modem commands**
 
@@ -96,10 +102,11 @@ These commands can be executed if a gsm modem is connected.  This is converted i
 
 <pre>/get_modem_timeout</pre> - timeout for wait execution of the AT command. Response - "25000". Is 25 second.
 
-<pre>/set_modem_timeout 30000</pre> - set timeout for wait execution of the AT command. Response - "OK". After reboot it clear to default value 25 second.
+<pre>/set_modem_timeout 30000</pre> - set timeout for wait execution of the AT command. Response - "OK". After reboot it clear to default value 25 second.<br/><br/>
 
 
 **System settings**
+
 To enter the system settings, you must enter a password. The default password is set in SystemSettings.h.
 
 <pre>/login Yotek901</pre> - gets access to change system settings.
