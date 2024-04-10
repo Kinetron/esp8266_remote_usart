@@ -33,6 +33,8 @@ esp8266-ping(https://github.com/bluemurder/esp8266-ping)
 
 In ext_config.h set the bot access password and the bot token.
 
+Change "Preferences", put to "Additional board manager url" link to platform "https://arduino.esp8266.com/stable/package_esp8266com_index.json"
+
 Programming scheme.
 ![programming scheme](./doc/programming_scheme.jpg)
 
@@ -146,3 +148,13 @@ It find in build folder:
 The device will respond <pre>OTA firmware...</pre>
 After updating the firmware, it will respond <pre>OK</pre>
 If everything is fine, it will update the firmware and reboot.
+
+After downloading, you will see a message
+<pre>The device is loaded. FW Version 1.0.2</pre>
+that means everything is fine.
+
+
+**PCB**
+
+PCB created in the program Sprint Layout and located in the folder
+"\pcb\board.lay6" 
