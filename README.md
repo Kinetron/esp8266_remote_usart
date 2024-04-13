@@ -15,6 +15,11 @@ It can be used to control any equipment via a serial port.
 The firmware extended to control the GSM modem.
 In the photo shows the connection of the modem to the esp-01.
 ![connect to modem](./doc/device.jpg)
+
+Assembled board
+![connect to modem](./doc/devicePcb1.jpg)
+![connect to modem](./doc/devicePcb2.jpg)
+
 ![сonnection diagram](./doc/modemCircuit.jpg)
 
 The USART ESP8266 is connected via jumper to a USB serial converter CP2102 for firmware. Or to the modem.
